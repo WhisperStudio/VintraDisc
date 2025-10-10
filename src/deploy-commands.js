@@ -19,6 +19,8 @@ const commands = [
   {
     name: 'verify',
     description: 'Gain access to the server by receiving the verification role.',
+    default_member_permissions: null,
+    dm_permission: false,
   },
 ];
 
