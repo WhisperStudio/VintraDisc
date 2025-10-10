@@ -18,7 +18,7 @@ if (!GUILD_ID) {
 const commands = [
   {
     name: 'verify',
-    description: 'Få tilgang til serveren ved å motta verificasjonsrollen.',
+    description: 'Gain access to the server by receiving the verification role.',
   },
 ];
 
@@ -26,14 +26,14 @@ const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 async function registerCommands() {
   try {
-    console.log('Starter oppdatering av /verify-kommando...');
+    console.log('Updating /verify command...');
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands },
     );
-    console.log('Slash-kommando registrert!');
+    console.log('Slash command registered!');
   } catch (error) {
-    console.error('Klarte ikke å registrere kommandoer:', error);
+    console.error('Failed to register commands:', error);
     process.exitCode = 1;
   }
 }

@@ -4,6 +4,7 @@ import {
   Client,
   EmbedBuilder,
   GatewayIntentBits,
+  GuildMember,
   Partials,
   REST,
   Routes,
@@ -206,14 +207,19 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  const { member } = interaction;
+  let member = interaction.member;
 
-  if (!member) {
-    await interaction.reply({
-      content: 'Could not find member information. Please try again later.',
-      ephemeral: true,
-    });
-    return;
+  if (!member || !(member instanceof GuildMember)) {
+    try {
+      member = await interaction.guild.members.fetch(interaction.user.id);
+    } catch (error) {
+      console.error('Failed to resolve guild member for verification:', error);
+      await interaction.reply({
+        content: 'Could not load your server profile. Please try again in a moment.',
+        ephemeral: true,
+      });
+      return;
+    }
   }
 
   if (member.roles.cache.has(VERIFIED_ROLE_ID)) {
