@@ -16,6 +16,7 @@ const {
   VERIFIED_ROLE_ID,
   VERIFICATION_CHANNEL_ID,
   RULES_CHANNEL_ID,
+  UNVERIFIED_ROLE_ID: ENV_UNVERIFIED_ROLE_ID,
 } = process.env;
 
 if (!DISCORD_TOKEN) {
@@ -40,6 +41,12 @@ if (!VERIFICATION_CHANNEL_ID) {
 
 if (!RULES_CHANNEL_ID) {
   throw new Error('Missing RULES_CHANNEL_ID in the environment.');
+}
+
+const UNVERIFIED_ROLE_ID = ENV_UNVERIFIED_ROLE_ID ?? '1425824087829381151';
+
+if (!ENV_UNVERIFIED_ROLE_ID) {
+  console.warn('UNVERIFIED_ROLE_ID not set. Using default role ID 1425824087829381151.');
 }
 
 const commands = [
@@ -159,6 +166,10 @@ client.once('ready', (readyClient) => {
 
 client.on('guildMemberAdd', async (member) => {
   try {
+    if (!member.roles.cache.has(UNVERIFIED_ROLE_ID)) {
+      await member.roles.add(UNVERIFIED_ROLE_ID, 'Assign unverified role on join');
+    }
+
     const channel = member.guild.channels.cache.get(VERIFICATION_CHANNEL_ID)
       ?? await member.guild.channels.fetch(VERIFICATION_CHANNEL_ID).catch(() => null);
 
@@ -214,6 +225,10 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   try {
+    if (member.roles.cache.has(UNVERIFIED_ROLE_ID)) {
+      await member.roles.remove(UNVERIFIED_ROLE_ID, 'Verification completed via /verify');
+    }
+
     await member.roles.add(VERIFIED_ROLE_ID, 'Verification completed via /verify');
     await interaction.reply({
       content: 'You are now verified! Welcome in! ✅',
