@@ -1,16 +1,17 @@
 import 'dotenv/config';
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
   GuildMember,
   Partials,
+  PermissionFlagsBits,
   REST,
   Routes,
-  ButtonBuilder,
-  ButtonStyle,
 } from 'discord.js';
 
 const {
@@ -20,11 +21,42 @@ const {
   VERIFIED_ROLE_ID,
   VERIFICATION_CHANNEL_ID,
   RULES_CHANNEL_ID,
+  SUPPORT_CHANNEL_ID: ENV_SUPPORT_CHANNEL_ID,
   UNVERIFIED_ROLE_ID: ENV_UNVERIFIED_ROLE_ID,
+  ADMIN_ROLE_ID: ENV_ADMIN_ROLE_ID,
 } = process.env;
 
 if (!DISCORD_TOKEN) {
   throw new Error('Missing DISCORD_TOKEN in the environment.');
+}
+
+async function addAdminsToThread(thread, guild) {
+  try {
+    const role = guild.roles.cache.get(ADMIN_ROLE_ID)
+      ?? await guild.roles.fetch(ADMIN_ROLE_ID).catch(() => null);
+
+    if (!role) {
+      console.warn('Admin role not found. Skipping admin thread invitations.');
+      return;
+    }
+
+    if (!role.members.size) {
+      console.warn('Admin role has no members to invite into ticket.');
+      return;
+    }
+
+    const invitations = Array.from(role.members.values()).map(async (member) => {
+      try {
+        await thread.members.add(member.id);
+      } catch (error) {
+        console.warn(`Failed to add admin ${member.user.tag} to ticket thread:`, error);
+      }
+    });
+
+    await Promise.allSettled(invitations);
+  } catch (error) {
+    console.error('Unexpected error while inviting admins to ticket thread:', error);
+  }
 }
 
 if (!CLIENT_ID) {
@@ -51,6 +83,18 @@ const UNVERIFIED_ROLE_ID = ENV_UNVERIFIED_ROLE_ID ?? '1425824087829381151';
 
 if (!ENV_UNVERIFIED_ROLE_ID) {
   console.warn('UNVERIFIED_ROLE_ID not set. Using default role ID 1425824087829381151.');
+}
+
+const SUPPORT_CHANNEL_ID = ENV_SUPPORT_CHANNEL_ID ?? '1426147549143634081';
+
+if (!ENV_SUPPORT_CHANNEL_ID) {
+  console.warn('SUPPORT_CHANNEL_ID not set. Using default channel ID 1426147549143634081.');
+}
+
+const ADMIN_ROLE_ID = ENV_ADMIN_ROLE_ID ?? '1425815446187278367';
+
+if (!ENV_ADMIN_ROLE_ID) {
+  console.warn('ADMIN_ROLE_ID not set. Using default role ID 1425815446187278367.');
 }
 
 const commands = [
@@ -116,6 +160,56 @@ async function sendVerificationPrompt(clientInstance) {
   }
 }
 
+async function sendSupportPrompt(clientInstance) {
+  try {
+    const guild = await clientInstance.guilds.fetch(GUILD_ID).catch(() => null);
+
+    if (!guild) {
+      console.warn('Unable to find guild for support prompt.');
+      return;
+    }
+
+    const channel = guild.channels.cache.get(SUPPORT_CHANNEL_ID)
+      ?? await guild.channels.fetch(SUPPORT_CHANNEL_ID).catch(() => null);
+
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      console.warn('Support channel missing or not a text channel.');
+      return;
+    }
+
+    await channel.messages.fetch({ limit: 20 }).catch(() => null);
+
+    const alreadyPosted = channel.messages.cache.find((message) => (
+      message.author.id === clientInstance.user.id
+      && message.components.some((row) => row.components.some((component) => component.customId === 'vintra_open_ticket'))
+    ));
+
+    if (alreadyPosted) {
+      return;
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('Need help?')
+      .setDescription('Click the button below to open a private support ticket with the Vintra team.')
+      .setColor(0x2ECC71)
+      .setFooter({ text: 'Vintra Support' })
+      .setTimestamp();
+
+    const openTicketButton = new ButtonBuilder()
+      .setCustomId('vintra_open_ticket')
+      .setLabel('Open Ticket')
+      .setStyle(ButtonStyle.Primary);
+
+    await channel.send({
+      content: '🆘 **Support Desk**\nNeed assistance? Click below to contact the team.',
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(openTicketButton)],
+    });
+  } catch (error) {
+    console.error('Failed to send support prompt:', error);
+  }
+}
+
 async function sendRules(clientInstance) {
   try {
     const guild = await clientInstance.guilds.fetch(GUILD_ID).catch(() => null);
@@ -174,6 +268,7 @@ client.once('ready', (readyClient) => {
   registerCommands();
   sendVerificationPrompt(readyClient);
   sendRules(readyClient);
+  sendSupportPrompt(readyClient);
 });
 
 async function verifyMember(member) {
@@ -218,6 +313,145 @@ client.on('guildMemberAdd', async (member) => {
 
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
+    if (interaction.customId === 'vintra_open_ticket') {
+      if (!interaction.inGuild()) {
+        await interaction.reply({
+          content: 'Please use this button inside the server.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      const supportChannel = interaction.guild.channels.cache.get(SUPPORT_CHANNEL_ID)
+        ?? await interaction.guild.channels.fetch(SUPPORT_CHANNEL_ID).catch(() => null);
+
+      if (!supportChannel || supportChannel.type !== ChannelType.GuildText) {
+        await interaction.editReply({
+          content: 'Support channel is unavailable. Please contact a moderator.',
+        });
+        return;
+      }
+
+      await supportChannel.threads.fetchActive().catch(() => null);
+
+      const existingThread = supportChannel.threads.cache.find((thread) => (
+        !thread.archived && thread.name.includes(interaction.user.id)
+      ));
+
+      if (existingThread) {
+        await interaction.editReply({
+          content: `You already have an open ticket: ${existingThread}.`,
+        });
+        return;
+      }
+
+      const baseName = `ticket-${interaction.user.username}`
+        .replace(/[^a-zA-Z0-9-]/g, '-')
+        .substring(0, 50);
+      const threadName = `${baseName}-${interaction.user.id}`.substring(0, 90);
+
+      let thread;
+
+      try {
+        thread = await supportChannel.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440,
+          type: ChannelType.PrivateThread,
+          reason: `Support ticket for ${interaction.user.tag}`,
+        });
+
+        await thread.members.add(interaction.user.id);
+        await addAdminsToThread(thread, interaction.guild);
+      } catch (error) {
+        console.warn('Private thread creation failed, falling back to public thread:', error);
+        thread = await supportChannel.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440,
+          reason: `Support ticket for ${interaction.user.tag}`,
+        });
+
+        await addAdminsToThread(thread, interaction.guild);
+      }
+
+      const closeButton = new ButtonBuilder()
+        .setCustomId('vintra_close_ticket')
+        .setLabel('Close Ticket')
+        .setStyle(ButtonStyle.Secondary);
+
+      const ticketEmbed = new EmbedBuilder()
+        .setTitle('Support Ticket')
+        .setDescription('A staff member will be with you shortly. Share your issue below so we can help you faster.')
+        .setColor(0x2ECC71)
+        .setFooter({ text: `Requester: ${interaction.user.tag}` })
+        .setTimestamp();
+
+      await thread.send({
+        content: `${interaction.user} opened a ticket.`,
+        embeds: [ticketEmbed],
+        components: [new ActionRowBuilder().addComponents(closeButton)],
+      });
+
+      await interaction.editReply({
+        content: `Your ticket has been created: ${thread}.`,
+      });
+      return;
+    }
+
+    if (interaction.customId === 'vintra_close_ticket') {
+      if (!interaction.inGuild()) {
+        await interaction.reply({
+          content: 'Please use this button inside the server.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const { channel } = interaction;
+
+      if (!channel?.isThread()) {
+        await interaction.reply({
+          content: 'This button only works inside ticket threads.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const member = interaction.member instanceof GuildMember
+        ? interaction.member
+        : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
+      if (!member) {
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again later.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const hasStaffPermission = member.permissions.has(PermissionFlagsBits.ManageThreads, true);
+      const isTicketOwner = channel.name.includes(interaction.user.id);
+
+      if (!hasStaffPermission && !isTicketOwner) {
+        await interaction.reply({
+          content: 'Only staff or the ticket creator can close this ticket.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      await channel.send(`Ticket closed by ${interaction.user}.`);
+      await channel.setArchived(true, 'Ticket closed');
+
+      await interaction.editReply({
+        content: 'Ticket closed. Thank you!',
+      });
+      return;
+    }
+
     if (interaction.customId !== 'vintra_verify_button') return;
 
     if (!interaction.inGuild()) {
