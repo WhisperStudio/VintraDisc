@@ -104,13 +104,87 @@ const commands = [
     default_member_permissions: null,
     dm_permission: false,
   },
+  {
+    name: 'announce',
+    description: 'Send an announcement in this channel.',
+    default_member_permissions: null,
+    dm_permission: false,
+    options: [
+      {
+        name: 'message',
+        description: 'Announcement message to post.',
+        type: 3,
+        required: true,
+      },
+    ],
+  },
+  {
+    name: 'warn',
+    description: 'Warn a member in the current channel.',
+    default_member_permissions: null,
+    dm_permission: false,
+    options: [
+      {
+        name: 'user',
+        description: 'Member to warn.',
+        type: 6,
+        required: true,
+      },
+      {
+        name: 'reason',
+        description: 'Reason for the warning.',
+        type: 3,
+        required: false,
+      },
+    ],
+  },
+  {
+    name: 'kick',
+    description: 'Kick a member from the server.',
+    default_member_permissions: null,
+    dm_permission: false,
+    options: [
+      {
+        name: 'user',
+        description: 'Member to kick.',
+        type: 6,
+        required: true,
+      },
+      {
+        name: 'reason',
+        description: 'Reason for the kick.',
+        type: 3,
+        required: false,
+      },
+    ],
+  },
+  {
+    name: 'ban',
+    description: 'Ban a member from the server.',
+    default_member_permissions: null,
+    dm_permission: false,
+    options: [
+      {
+        name: 'user',
+        description: 'Member to ban.',
+        type: 6,
+        required: true,
+      },
+      {
+        name: 'reason',
+        description: 'Reason for the ban.',
+        type: 3,
+        required: false,
+      },
+    ],
+  },
 ];
 
 const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
 
 async function registerCommands() {
   try {
-    console.log('Registering /verify command on startup...');
+    console.log('Registering application commands on startup...');
     await rest.put(
       Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
       { body: commands },
@@ -503,6 +577,325 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'announce') {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used inside the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    let member = interaction.member;
+
+    if (!member || !(member instanceof GuildMember)) {
+      try {
+        member = await interaction.guild.members.fetch(interaction.user.id);
+      } catch (error) {
+        console.error('Failed to resolve guild member for announcement:', error);
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again in a moment.',
+          ephemeral: true,
+        });
+        return;
+      }
+    }
+
+    if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only administrators can use this command.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const announcement = interaction.options.getString('message', true);
+    const targetChannel = interaction.channel;
+
+    if (!targetChannel?.isTextBased()) {
+      await interaction.reply({
+        content: 'Announcements can only be sent in text channels.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await targetChannel.send({ content: announcement });
+    await interaction.reply({
+      content: 'Announcement sent.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (interaction.commandName === 'warn') {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used inside the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    let member = interaction.member;
+
+    if (!member || !(member instanceof GuildMember)) {
+      try {
+        member = await interaction.guild.members.fetch(interaction.user.id);
+      } catch (error) {
+        console.error('Failed to resolve guild member for warning:', error);
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again in a moment.',
+          ephemeral: true,
+        });
+        return;
+      }
+    }
+
+    if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only administrators can use this command.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetUser = interaction.options.getUser('user', true);
+    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    if (targetUser.id === interaction.user.id) {
+      await interaction.reply({
+        content: 'You cannot warn yourself.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetMember = interaction.guild.members.cache.get(targetUser.id)
+      ?? await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+    if (!targetMember) {
+      await interaction.reply({
+        content: 'Could not find that member in the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.channel.send({
+      content: `${targetMember}, you have received a warning from ${interaction.user}. Reason: ${reason}`,
+    });
+
+    await interaction.reply({
+      content: 'Warning delivered.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (interaction.commandName === 'kick') {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used inside the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    let member = interaction.member;
+
+    if (!member || !(member instanceof GuildMember)) {
+      try {
+        member = await interaction.guild.members.fetch(interaction.user.id);
+      } catch (error) {
+        console.error('Failed to resolve guild member for kick:', error);
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again in a moment.',
+          ephemeral: true,
+        });
+        return;
+      }
+    }
+
+    if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only administrators can use this command.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (!member.permissions.has(PermissionFlagsBits.KickMembers, true)) {
+      await interaction.reply({
+        content: 'You are missing the Kick Members permission.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const botMember = interaction.guild.members.me;
+
+    if (!botMember?.permissions.has(PermissionFlagsBits.KickMembers, true)) {
+      await interaction.reply({
+        content: 'I do not have permission to kick members.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetUser = interaction.options.getUser('user', true);
+    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    if (targetUser.id === interaction.user.id) {
+      await interaction.reply({
+        content: 'You cannot kick yourself.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetMember = interaction.guild.members.cache.get(targetUser.id)
+      ?? await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+    if (!targetMember) {
+      await interaction.reply({
+        content: 'Could not find that member in the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (member.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+      await interaction.reply({
+        content: 'You cannot kick a member with an equal or higher role.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (botMember.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+      await interaction.reply({
+        content: 'I cannot kick a member with an equal or higher role than mine.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await targetMember.kick(reason).catch(async (error) => {
+      console.error('Failed to kick member:', error);
+      await interaction.reply({
+        content: 'Failed to kick that member. Please check my permissions and role hierarchy.',
+        ephemeral: true,
+      });
+    });
+
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({
+        content: `Kicked ${targetUser.tag}. Reason: ${reason}`,
+        ephemeral: true,
+      });
+    }
+    return;
+  }
+
+  if (interaction.commandName === 'ban') {
+    if (!interaction.inGuild()) {
+      await interaction.reply({
+        content: 'This command can only be used inside the server.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    let member = interaction.member;
+
+    if (!member || !(member instanceof GuildMember)) {
+      try {
+        member = await interaction.guild.members.fetch(interaction.user.id);
+      } catch (error) {
+        console.error('Failed to resolve guild member for ban:', error);
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again in a moment.',
+          ephemeral: true,
+        });
+        return;
+      }
+    }
+
+    if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
+      await interaction.reply({
+        content: 'Only administrators can use this command.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (!member.permissions.has(PermissionFlagsBits.BanMembers, true)) {
+      await interaction.reply({
+        content: 'You are missing the Ban Members permission.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const botMember = interaction.guild.members.me;
+
+    if (!botMember?.permissions.has(PermissionFlagsBits.BanMembers, true)) {
+      await interaction.reply({
+        content: 'I do not have permission to ban members.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetUser = interaction.options.getUser('user', true);
+    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+
+    if (targetUser.id === interaction.user.id) {
+      await interaction.reply({
+        content: 'You cannot ban yourself.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetMember = interaction.guild.members.cache.get(targetUser.id)
+      ?? await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+    if (targetMember && member.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+      await interaction.reply({
+        content: 'You cannot ban a member with an equal or higher role.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (targetMember && botMember.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+      await interaction.reply({
+        content: 'I cannot ban a member with an equal or higher role than mine.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.guild.members.ban(targetUser, { reason }).catch(async (error) => {
+      console.error('Failed to ban member:', error);
+      await interaction.reply({
+        content: 'Failed to ban that member. Please check my permissions and role hierarchy.',
+        ephemeral: true,
+      });
+    });
+
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({
+        content: `Banned ${targetUser.tag}. Reason: ${reason}`,
+        ephemeral: true,
+      });
+    }
+    return;
+  }
+
   if (interaction.commandName !== 'verify') return;
 
   if (!interaction.inGuild()) {
