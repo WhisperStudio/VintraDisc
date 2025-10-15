@@ -857,7 +857,15 @@ client.on('interactionCreate', async (interaction) => {
 
     const targetUser = interaction.options.getUser('user', true);
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
-    const durationMinutes = interaction.options.getInteger('duration');
+    let durationMinutes = interaction.options.getInteger('duration');
+
+    if (durationMinutes !== null && (durationMinutes <= 0 || durationMinutes > 10080)) { // Max 1 week
+      await interaction.reply({
+        content: 'Duration must be a positive number up to 10080 minutes (1 week).',
+        ephemeral: true,
+      });
+      return;
+    }
 
     if (targetUser.id === interaction.user.id) {
       await interaction.reply({
@@ -896,20 +904,20 @@ client.on('interactionCreate', async (interaction) => {
 
     const timeoutDuration = durationMinutes ? durationMinutes * 60 * 1000 : null; // Null for indefinite
 
-    await targetMember.timeout(timeoutDuration, reason).catch(async (error) => {
+    try {
+      await targetMember.timeout(timeoutDuration, reason);
+      await interaction.reply({
+        content: `Muted ${targetUser.tag}${durationMinutes ? ` for ${durationMinutes} minutes` : ' indefinitely'}. Reason: ${reason}`,
+        ephemeral: true,
+      });
+    } catch (error) {
       console.error('Failed to mute member:', error);
       await interaction.reply({
         content: 'Failed to mute that member. Please check my permissions and role hierarchy.',
         ephemeral: true,
       });
-    });
-
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: `Muted ${targetUser.tag}${durationMinutes ? ` for ${durationMinutes} minutes` : ' indefinitely'}. Reason: ${reason}`,
-        ephemeral: true,
-      });
     }
+
     return;
   }
 
