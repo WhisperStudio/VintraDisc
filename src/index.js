@@ -159,21 +159,27 @@ const commands = [
     ],
   },
   {
-    name: 'ban',
-    description: 'Ban a member from the server.',
+    name: 'mute',
+    description: 'Mute a member in the server.',
     default_member_permissions: null,
     dm_permission: false,
     options: [
       {
         name: 'user',
-        description: 'Member to ban.',
+        description: 'Member to mute.',
         type: 6,
         required: true,
       },
       {
         name: 'reason',
-        description: 'Reason for the ban.',
+        description: 'Reason for the mute.',
         type: 3,
+        required: false,
+      },
+      {
+        name: 'duration',
+        description: 'Duration of the mute in minutes (optional, indefinite if not provided).',
+        type: 4,
         required: false,
       },
     ],
@@ -799,7 +805,7 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  if (interaction.commandName === 'ban') {
+  if (interaction.commandName === 'mute') {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'This command can only be used inside the server.',
@@ -814,7 +820,7 @@ client.on('interactionCreate', async (interaction) => {
       try {
         member = await interaction.guild.members.fetch(interaction.user.id);
       } catch (error) {
-        console.error('Failed to resolve guild member for ban:', error);
+        console.error('Failed to resolve guild member for mute:', error);
         await interaction.reply({
           content: 'Could not load your server profile. Please try again in a moment.',
           ephemeral: true,
@@ -831,9 +837,9 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    if (!member.permissions.has(PermissionFlagsBits.BanMembers, true)) {
+    if (!member.permissions.has(PermissionFlagsBits.MuteMembers, true)) {
       await interaction.reply({
-        content: 'You are missing the Ban Members permission.',
+        content: 'You are missing the Mute Members permission.',
         ephemeral: true,
       });
       return;
@@ -841,9 +847,9 @@ client.on('interactionCreate', async (interaction) => {
 
     const botMember = interaction.guild.members.me;
 
-    if (!botMember?.permissions.has(PermissionFlagsBits.BanMembers, true)) {
+    if (!botMember?.permissions.has(PermissionFlagsBits.MuteMembers, true)) {
       await interaction.reply({
-        content: 'I do not have permission to ban members.',
+        content: 'I do not have permission to mute members.',
         ephemeral: true,
       });
       return;
@@ -851,10 +857,11 @@ client.on('interactionCreate', async (interaction) => {
 
     const targetUser = interaction.options.getUser('user', true);
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+    const durationMinutes = interaction.options.getInteger('duration');
 
     if (targetUser.id === interaction.user.id) {
       await interaction.reply({
-        content: 'You cannot ban yourself.',
+        content: 'You cannot mute yourself.',
         ephemeral: true,
       });
       return;
@@ -863,33 +870,43 @@ client.on('interactionCreate', async (interaction) => {
     const targetMember = interaction.guild.members.cache.get(targetUser.id)
       ?? await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
-    if (targetMember && member.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+    if (!targetMember) {
       await interaction.reply({
-        content: 'You cannot ban a member with an equal or higher role.',
+        content: 'Could not find that member in the server.',
         ephemeral: true,
       });
       return;
     }
 
-    if (targetMember && botMember.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
+    if (member.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
       await interaction.reply({
-        content: 'I cannot ban a member with an equal or higher role than mine.',
+        content: 'You cannot mute a member with an equal or higher role.',
         ephemeral: true,
       });
       return;
     }
 
-    await interaction.guild.members.ban(targetUser, { reason }).catch(async (error) => {
-      console.error('Failed to ban member:', error);
+    if (botMember.roles.highest.comparePositionTo(targetMember.roles.highest) <= 0) {
       await interaction.reply({
-        content: 'Failed to ban that member. Please check my permissions and role hierarchy.',
+        content: 'I cannot mute a member with an equal or higher role than mine.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const timeoutDuration = durationMinutes ? durationMinutes * 60 * 1000 : null; // Null for indefinite
+
+    await targetMember.timeout(timeoutDuration, reason).catch(async (error) => {
+      console.error('Failed to mute member:', error);
+      await interaction.reply({
+        content: 'Failed to mute that member. Please check my permissions and role hierarchy.',
         ephemeral: true,
       });
     });
 
     if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
-        content: `Banned ${targetUser.tag}. Reason: ${reason}`,
+        content: `Muted ${targetUser.tag}${durationMinutes ? ` for ${durationMinutes} minutes` : ' indefinitely'}. Reason: ${reason}`,
         ephemeral: true,
       });
     }
