@@ -97,6 +97,8 @@ if (!ENV_ADMIN_ROLE_ID) {
   console.warn('ADMIN_ROLE_ID not set. Using default role ID 1425815446187278367.');
 }
 
+const MOD_ALERTS_CHANNEL_ID = '1425822903890612305';
+
 const commands = [
   {
     name: 'verify',
@@ -443,23 +445,6 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await thread.members.add(interaction.user.id);
-        await addAdminsToThread(thread, interaction.guild);
-
-        // Also add the server owner to ensure they can access and claim the ticket
-        const owner = await interaction.guild.fetchOwner().catch(() => null);
-        if (owner && owner.id !== interaction.user.id) {
-          await thread.members.add(owner.id);
-        }
-
-        // Add specific users: kaktus-sjef and P1ERE
-        const kaktusSjef = await interaction.guild.members.fetch({ query: 'kaktus-sjef', limit: 1 }).then(members => members.first()).catch(() => null);
-        if (kaktusSjef) {
-          await thread.members.add(kaktusSjef.id);
-        }
-        const p1ere = await interaction.guild.members.fetch({ query: 'P1ERE', limit: 1 }).then(members => members.first()).catch(() => null);
-        if (p1ere) {
-          await thread.members.add(p1ere.id);
-        }
       } catch (error) {
         console.warn('Private thread creation failed, falling back to public thread:', error);
         thread = await supportChannel.threads.create({
@@ -469,29 +454,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await thread.members.add(interaction.user.id);
-        await addAdminsToThread(thread, interaction.guild);
-
-        // Also add the server owner to ensure they can access and claim the ticket
-        const owner = await interaction.guild.fetchOwner().catch(() => null);
-        if (owner && owner.id !== interaction.user.id) {
-          await thread.members.add(owner.id);
-        }
-
-        // Add specific users: kaktus-sjef and P1ERE
-        const kaktusSjef = await interaction.guild.members.fetch({ query: 'kaktus-sjef', limit: 1 }).then(members => members.first()).catch(() => null);
-        if (kaktusSjef) {
-          await thread.members.add(kaktusSjef.id);
-        }
-        const p1ere = await interaction.guild.members.fetch({ query: 'P1ERE', limit: 1 }).then(members => members.first()).catch(() => null);
-        if (p1ere) {
-          await thread.members.add(p1ere.id);
-        }
       }
-
-      const claimButton = new ButtonBuilder()
-        .setCustomId('vintra_claim_ticket')
-        .setLabel('Claim Ticket')
-        .setStyle(ButtonStyle.Primary);
 
       const closeButton = new ButtonBuilder()
         .setCustomId('vintra_close_ticket')
@@ -500,16 +463,32 @@ client.on('interactionCreate', async (interaction) => {
 
       const ticketEmbed = new EmbedBuilder()
         .setTitle('Support Ticket')
-        .setDescription('Admins have been invited to this ticket. An administrator must claim this ticket to provide assistance.')
+        .setDescription('Waiting for an administrator to claim this ticket from the mod alerts channel.')
         .setColor(0x2ECC71)
         .setFooter({ text: `Requester: ${interaction.user.tag}` })
         .setTimestamp();
 
       await thread.send({
-        content: `${interaction.user} opened a ticket. Waiting for an admin to claim it.`,
+        content: `${interaction.user} opened a ticket. Waiting for an admin to claim it from mod alerts.`,
         embeds: [ticketEmbed],
-        components: [new ActionRowBuilder().addComponents(claimButton, closeButton)],
+        components: [new ActionRowBuilder().addComponents(closeButton)],
       });
+
+      // Send claim notification to mod alerts channel
+      const modAlertsChannel = interaction.guild.channels.cache.get(MOD_ALERTS_CHANNEL_ID)
+        ?? await interaction.guild.channels.fetch(MOD_ALERTS_CHANNEL_ID).catch(() => null);
+
+      if (modAlertsChannel && modAlertsChannel.type === ChannelType.GuildText) {
+        const claimButton = new ButtonBuilder()
+          .setCustomId(`vintra_claim_ticket_${thread.id}`)
+          .setLabel('Claim Ticket')
+          .setStyle(ButtonStyle.Primary);
+
+        await modAlertsChannel.send({
+          content: `New ticket created by ${interaction.user} in ${thread}. Admins can claim it here.`,
+          components: [new ActionRowBuilder().addComponents(claimButton)],
+        });
+      }
 
       await interaction.editReply({
         content: `Your ticket has been created: ${thread}.`,
@@ -570,20 +549,10 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
-    if (interaction.customId === 'vintra_claim_ticket') {
+    if (interaction.customId.startsWith('vintra_claim_ticket_')) {
       if (!interaction.inGuild()) {
         await interaction.reply({
           content: 'Please use this button inside the server.',
-          ephemeral: true,
-        });
-        return;
-      }
-
-      const { channel } = interaction;
-
-      if (!channel?.isThread()) {
-        await interaction.reply({
-          content: 'This button only works inside ticket threads.',
           ephemeral: true,
         });
         return;
@@ -609,13 +578,28 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
+      // Parse thread ID from customId
+      const threadId = interaction.customId.replace('vintra_claim_ticket_', '');
+      const thread = interaction.guild.channels.cache.get(threadId) || await interaction.guild.channels.fetch(threadId).catch(() => null);
+
+      if (!thread || !thread.isThread()) {
+        await interaction.reply({
+          content: 'Could not find the ticket thread. It may have been deleted.',
+          ephemeral: true,
+        });
+        return;
+      }
+
       await interaction.deferReply({ ephemeral: true });
 
-      // Send a message in the thread indicating the claim
-      await channel.send(`Ticket claimed by ${interaction.user}. Assistance will begin shortly.`);
+      // Add the claimer to the thread
+      await thread.members.add(interaction.user.id);
 
-      // Optionally, edit the original embed to reflect the claim
-      const messages = await channel.messages.fetch({ limit: 10 });
+      // Send a message in the thread indicating the claim
+      await thread.send(`Ticket claimed by ${interaction.user}. Assistance will begin shortly.`);
+
+      // Update the original embed in the thread
+      const messages = await thread.messages.fetch({ limit: 10 });
       const originalMessage = messages.find(msg => msg.author.id === interaction.client.user.id && msg.components.length > 0);
       if (originalMessage) {
         const updatedEmbed = EmbedBuilder.from(originalMessage.embeds[0])
