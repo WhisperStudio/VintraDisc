@@ -450,6 +450,16 @@ client.on('interactionCreate', async (interaction) => {
         if (owner && owner.id !== interaction.user.id) {
           await thread.members.add(owner.id);
         }
+
+        // Add specific users: kaktus-sjef and P1ERE
+        const kaktusSjef = await interaction.guild.members.fetch({ query: 'kaktus-sjef', limit: 1 }).then(members => members.first()).catch(() => null);
+        if (kaktusSjef) {
+          await thread.members.add(kaktusSjef.id);
+        }
+        const p1ere = await interaction.guild.members.fetch({ query: 'P1ERE', limit: 1 }).then(members => members.first()).catch(() => null);
+        if (p1ere) {
+          await thread.members.add(p1ere.id);
+        }
       } catch (error) {
         console.warn('Private thread creation failed, falling back to public thread:', error);
         thread = await supportChannel.threads.create({
@@ -465,6 +475,16 @@ client.on('interactionCreate', async (interaction) => {
         const owner = await interaction.guild.fetchOwner().catch(() => null);
         if (owner && owner.id !== interaction.user.id) {
           await thread.members.add(owner.id);
+        }
+
+        // Add specific users: kaktus-sjef and P1ERE
+        const kaktusSjef = await interaction.guild.members.fetch({ query: 'kaktus-sjef', limit: 1 }).then(members => members.first()).catch(() => null);
+        if (kaktusSjef) {
+          await thread.members.add(kaktusSjef.id);
+        }
+        const p1ere = await interaction.guild.members.fetch({ query: 'P1ERE', limit: 1 }).then(members => members.first()).catch(() => null);
+        if (p1ere) {
+          await thread.members.add(p1ere.id);
         }
       }
 
