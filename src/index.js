@@ -444,6 +444,12 @@ client.on('interactionCreate', async (interaction) => {
 
         await thread.members.add(interaction.user.id);
         await addAdminsToThread(thread, interaction.guild);
+
+        // Also add the server owner to ensure they can access and claim the ticket
+        const owner = await interaction.guild.fetchOwner().catch(() => null);
+        if (owner && owner.id !== interaction.user.id) {
+          await thread.members.add(owner.id);
+        }
       } catch (error) {
         console.warn('Private thread creation failed, falling back to public thread:', error);
         thread = await supportChannel.threads.create({
@@ -454,6 +460,12 @@ client.on('interactionCreate', async (interaction) => {
 
         await thread.members.add(interaction.user.id);
         await addAdminsToThread(thread, interaction.guild);
+
+        // Also add the server owner to ensure they can access and claim the ticket
+        const owner = await interaction.guild.fetchOwner().catch(() => null);
+        if (owner && owner.id !== interaction.user.id) {
+          await thread.members.add(owner.id);
+        }
       }
 
       const claimButton = new ButtonBuilder()
