@@ -443,7 +443,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await thread.members.add(interaction.user.id);
-        // Removed automatic admin addition - admins must claim the ticket
+        await addAdminsToThread(thread, interaction.guild);
       } catch (error) {
         console.warn('Private thread creation failed, falling back to public thread:', error);
         thread = await supportChannel.threads.create({
@@ -453,7 +453,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await thread.members.add(interaction.user.id);
-        // Removed automatic admin addition for public thread as well
+        await addAdminsToThread(thread, interaction.guild);
       }
 
       const claimButton = new ButtonBuilder()
@@ -468,7 +468,7 @@ client.on('interactionCreate', async (interaction) => {
 
       const ticketEmbed = new EmbedBuilder()
         .setTitle('Support Ticket')
-        .setDescription('An administrator must claim this ticket to assist you. Please wait for an admin to claim it.')
+        .setDescription('Admins have been invited to this ticket. An administrator must claim this ticket to provide assistance.')
         .setColor(0x2ECC71)
         .setFooter({ text: `Requester: ${interaction.user.tag}` })
         .setTimestamp();
