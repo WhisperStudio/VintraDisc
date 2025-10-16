@@ -443,7 +443,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         await thread.members.add(interaction.user.id);
-        await addAdminsToThread(thread, interaction.guild);
+        // Removed automatic admin addition - admins must claim the ticket
       } catch (error) {
         console.warn('Private thread creation failed, falling back to public thread:', error);
         thread = await supportChannel.threads.create({
@@ -452,8 +452,14 @@ client.on('interactionCreate', async (interaction) => {
           reason: `Support ticket for ${interaction.user.tag}`,
         });
 
-        await addAdminsToThread(thread, interaction.guild);
+        await thread.members.add(interaction.user.id);
+        // Removed automatic admin addition for public thread as well
       }
+
+      const claimButton = new ButtonBuilder()
+        .setCustomId('vintra_claim_ticket')
+        .setLabel('Claim Ticket')
+        .setStyle(ButtonStyle.Primary);
 
       const closeButton = new ButtonBuilder()
         .setCustomId('vintra_close_ticket')
@@ -462,15 +468,15 @@ client.on('interactionCreate', async (interaction) => {
 
       const ticketEmbed = new EmbedBuilder()
         .setTitle('Support Ticket')
-        .setDescription('A staff member will be with you shortly. Share your issue below so we can help you faster.')
+        .setDescription('An administrator must claim this ticket to assist you. Please wait for an admin to claim it.')
         .setColor(0x2ECC71)
         .setFooter({ text: `Requester: ${interaction.user.tag}` })
         .setTimestamp();
 
       await thread.send({
-        content: `${interaction.user} opened a ticket.`,
+        content: `${interaction.user} opened a ticket. Waiting for an admin to claim it.`,
         embeds: [ticketEmbed],
-        components: [new ActionRowBuilder().addComponents(closeButton)],
+        components: [new ActionRowBuilder().addComponents(claimButton, closeButton)],
       });
 
       await interaction.editReply({
@@ -528,6 +534,65 @@ client.on('interactionCreate', async (interaction) => {
 
       await interaction.editReply({
         content: 'Ticket closed. Thank you!',
+      });
+      return;
+    }
+
+    if (interaction.customId === 'vintra_claim_ticket') {
+      if (!interaction.inGuild()) {
+        await interaction.reply({
+          content: 'Please use this button inside the server.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const { channel } = interaction;
+
+      if (!channel?.isThread()) {
+        await interaction.reply({
+          content: 'This button only works inside ticket threads.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const member = interaction.member instanceof GuildMember
+        ? interaction.member
+        : await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
+      if (!member) {
+        await interaction.reply({
+          content: 'Could not load your server profile. Please try again later.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (!member.roles.cache.has(ADMIN_ROLE_ID)) {
+        await interaction.reply({
+          content: 'Only administrators can claim tickets.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      // Send a message in the thread indicating the claim
+      await channel.send(`Ticket claimed by ${interaction.user}. Assistance will begin shortly.`);
+
+      // Optionally, edit the original embed to reflect the claim
+      const messages = await channel.messages.fetch({ limit: 10 });
+      const originalMessage = messages.find(msg => msg.author.id === interaction.client.user.id && msg.components.length > 0);
+      if (originalMessage) {
+        const updatedEmbed = EmbedBuilder.from(originalMessage.embeds[0])
+          .setDescription('This ticket has been claimed by an administrator. Assistance is underway.');
+        await originalMessage.edit({ embeds: [updatedEmbed] });
+      }
+
+      await interaction.editReply({
+        content: 'Ticket claimed successfully.',
       });
       return;
     }
